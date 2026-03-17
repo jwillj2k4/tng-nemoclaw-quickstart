@@ -22,7 +22,7 @@ This affects everyone on WSL2 with an NVIDIA GPU. [Others have reported the same
 
 ## Quick Start
 
-### WSL2 (with or without NVIDIA GPU)
+### WSL2 — Cloud Inference (Stable)
 
 ```bash
 git clone https://github.com/thenewguardai/tng-nemoclaw-quickstart.git
@@ -36,6 +36,21 @@ chmod +x scripts/*.sh setup.sh
 # Get a free NVIDIA API key at https://build.nvidia.com first
 ./scripts/wsl2-deploy.sh nvapi-YOUR-KEY-HERE
 ```
+
+### WSL2 — Local GPU Inference (Experimental — Confirmed on RTX 5090)
+
+```bash
+git clone https://github.com/thenewguardai/tng-nemoclaw-quickstart.git
+cd tng-nemoclaw-quickstart
+chmod +x scripts/*.sh setup.sh
+./setup.sh
+
+# Patches CDI pipeline to enable actual GPU passthrough on WSL2
+# API key is optional — local inference doesn't need one
+./scripts/wsl2-gpu-deploy.sh [optional-nvapi-KEY]
+```
+
+> **What this does:** Starts gateway WITH `--gpu`, generates CDI spec, patches in GPU UUID device entry + `libdxcore.so`, enables CDI in containerd, restarts containerd, labels the k3s node, and waits for the nvidia device plugin. Falls back to cloud inference if GPU setup fails. See [docs/WSL2-WORKAROUND.md](docs/WSL2-WORKAROUND.md) for the full root cause analysis. Confirmed working on RTX 5090 Laptop (24GB).
 
 ### macOS (Docker Desktop)
 
@@ -66,7 +81,7 @@ The setup is split into two phases:
 
 **Phase 1 (`setup.sh`):** Installs prerequisites (Docker, Node.js, Git), clones OpenShell + NemoClaw repos, installs both CLIs, copies TNG policy templates. Works on all platforms.
 
-**Phase 2 (platform-specific deploy):** Creates the OpenShell gateway, inference provider, sandbox, and configures OpenClaw inside the sandbox. On WSL2/macOS, this bypasses `nemoclaw onboard` entirely because of the `--gpu` bug.
+**Phase 2 (platform-specific deploy):** Creates the OpenShell gateway, inference provider, sandbox, and configures OpenClaw inside the sandbox. On WSL2/macOS, this bypasses `nemoclaw onboard` entirely because of the `--gpu` bug. The experimental `wsl2-gpu-deploy.sh` patches the CDI pipeline to enable actual GPU passthrough on WSL2 — see [docs/WSL2-WORKAROUND.md](docs/WSL2-WORKAROUND.md) for the full root cause analysis.
 
 ---
 
@@ -78,7 +93,8 @@ tng-nemoclaw-quickstart/
 ├── scripts/
 │   ├── install-prereqs.sh          # Docker, Node.js, Git (cross-platform)
 │   ├── deploy-nemoclaw.sh          # Install OpenShell + NemoClaw CLIs
-│   ├── wsl2-deploy.sh              # Phase 2: WSL2 full deploy (workaround)
+│   ├── wsl2-deploy.sh              # Phase 2: WSL2 cloud inference (stable)
+│   ├── wsl2-gpu-deploy.sh          # Phase 2: WSL2 local GPU inference (experimental)
 │   ├── macos-deploy.sh             # Phase 2: macOS full deploy (workaround)
 │   ├── health-check.sh             # Verify the full stack
 │   └── teardown.sh                 # Clean uninstall
@@ -110,7 +126,7 @@ tng-nemoclaw-quickstart/
 | **Docker** | Docker Desktop | Docker Engine or Desktop | Docker Desktop + WSL integration |
 | **RAM** | 16GB+ | 16GB+ | 16GB+ |
 | **NVIDIA API Key** | Required | Required | Required |
-| **GPU** | N/A | Optional (local inference) | Detected but not usable (known bug) |
+| **GPU** | N/A | Optional (local inference) | Usable with `wsl2-gpu-deploy.sh` (experimental) |
 
 Get a free NVIDIA API key at [build.nvidia.com](https://build.nvidia.com).
 

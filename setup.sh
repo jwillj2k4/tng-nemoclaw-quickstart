@@ -6,9 +6,10 @@
 # nemoclaw onboard (which is broken on WSL2 with GPUs).
 #
 # After this completes, run the platform-specific deploy script:
-#   WSL2:  ./scripts/wsl2-deploy.sh nvapi-YOUR-KEY
-#   macOS: ./scripts/macos-deploy.sh nvapi-YOUR-KEY
-#   Linux: cd ~/.tng-nemoclaw/NemoClaw && nemoclaw onboard
+#   WSL2 (cloud):  ./scripts/wsl2-deploy.sh nvapi-YOUR-KEY
+#   WSL2 (GPU):    ./scripts/wsl2-gpu-deploy.sh [optional-key]
+#   macOS:         ./scripts/macos-deploy.sh nvapi-YOUR-KEY
+#   Linux:         cd ~/.tng-nemoclaw/NemoClaw && nemoclaw onboard
 # ============================================================================
 
 set -uo pipefail
@@ -131,10 +132,14 @@ print_next_steps() {
 
   case "${OS_TYPE}" in
     wsl2)
-      echo -e "  ${BOLD}Next step (WSL2):${NC}"
+      echo -e "  ${BOLD}Next step (WSL2 — cloud inference, stable):${NC}"
       echo "    ./scripts/wsl2-deploy.sh nvapi-YOUR-NVIDIA-KEY"
       echo ""
+      echo -e "  ${BOLD}Or (WSL2 — local GPU inference, experimental but confirmed on RTX 5090):${NC}"
+      echo "    ./scripts/wsl2-gpu-deploy.sh"
+      echo ""
       echo "  Get a free key at: https://build.nvidia.com"
+      echo "  GPU path patches the CDI pipeline — no API key required."
       ;;
     macos)
       echo -e "  ${BOLD}Next step (macOS):${NC}"

@@ -120,3 +120,42 @@ cd ~/.tng-nemoclaw/NemoClaw && npm link
 ## macOS: NemoClaw installer warns about Ubuntu
 
 NemoClaw's installer checks for Ubuntu. On macOS, the sandbox runs inside Docker containers (Linux), so this warning is cosmetic. Use `./scripts/macos-deploy.sh` instead of `nemoclaw onboard`.
+
+## WSL2 GPU: nvidia-device-plugin 0/0 desired replicas
+
+**Root cause:** WSL2 doesn't expose PCI topology. Node Feature Discovery never sets `pci-10de.present=true`, so the device plugin DaemonSet's node affinity is never satisfied.
+
+**Fix:** The `wsl2-gpu-deploy.sh` script handles this automatically. Manual fix:
+```bash
+NODE=$(openshell doctor exec -- kubectl get nodes --no-headers -o custom-columns=":metadata.name" | head -1)
+openshell doctor exec -- kubectl label node "$NODE" feature.node.kubernetes.io/pci-10de.present=true --overwrite
+```
+
+## WSL2 GPU: "Failed to initialize NVML: Not Supported"
+
+**Root cause:** The nvidia container runtime's `auto` mode uses legacy injection, which doesn't mount `libdxcore.so` into pods. This library is the critical bridge between Linux NVML and the Windows DirectX GPU Kernel on WSL2.
+
+**Fix:** Switch to CDI mode and patch the CDI spec. The `wsl2-gpu-deploy.sh` script handles this. Manual fix:
+```bash
+# Generate CDI spec
+openshell doctor exec -- nvidia-ctk cdi generate --output=/var/run/cdi/nvidia.yaml
+
+# Patch libdxcore.so into the spec (see wsl2-gpu-deploy.sh for the full YAML patch)
+
+# Switch runtime mode
+openshell doctor exec -- sed -i 's/mode = "auto"/mode = "cdi"/' /etc/nvidia-container-runtime/config.toml
+```
+
+See [docs/WSL2-WORKAROUND.md](WSL2-WORKAROUND.md) for the full root cause chain.
+
+## WSL2 GPU: "Could not locate libdxcore.so"
+
+**Root cause:** `nvidia-ctk cdi generate` logs this warning but the library IS present. This is an upstream bug in nvidia-container-toolkit ([#1739](https://github.com/NVIDIA/nvidia-container-toolkit/issues/1739)).
+
+**Workaround:** The `wsl2-gpu-deploy.sh` script finds `libdxcore.so` and patches it into the CDI spec. Common locations:
+- `/usr/lib/x86_64-linux-gnu/libdxcore.so`
+- `/usr/lib/wsl/lib/libdxcore.so`
+
+## WSL2 GPU: Falls back to "no GPU" even after patching
+
+The CDI pipeline patching is experimental and depends on the exact WSL2/Docker Desktop/driver combination. If `wsl2-gpu-deploy.sh` falls back to creating a sandbox without `--gpu`, you still get a working sandbox with cloud inference. Use `./scripts/wsl2-deploy.sh nvapi-YOUR-KEY` for the stable cloud-only path.
