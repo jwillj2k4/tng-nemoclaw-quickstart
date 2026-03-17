@@ -111,12 +111,28 @@ install_prereqs() {
 # --- Phase 2: Deploy NemoClaw -----------------------------------------------
 deploy_nemoclaw() {
   info "Phase 2/4: Deploying NemoClaw + OpenShell..."
-  if bash "${REPO_DIR}/scripts/deploy-nemoclaw.sh" 2>&1 | tee -a "${LOG_FILE}"; then
+
+  # Run deploy script, capture its exit code through the pipe.
+  # No set -e, so a non-zero exit won't kill us. No || true either —
+  # that would clobber PIPESTATUS.
+  bash "${REPO_DIR}/scripts/deploy-nemoclaw.sh" 2>&1 | tee -a "${LOG_FILE}"
+  DEPLOY_EXIT=${PIPESTATUS[0]}
+
+  if [[ ${DEPLOY_EXIT} -eq 0 ]]; then
     success "NemoClaw deployed ✓"
+    return 0
+  elif [[ ${DEPLOY_EXIT} -eq 2 ]]; then
+    # Exit code 2 = cgroup needs fixing, user action required
+    # The deploy script already printed clear instructions.
+    # Don't continue with health check — it'll just add noise.
+    warn ""
+    warn "Setup paused — Docker cgroup configuration needed."
+    warn "Follow the instructions above, then re-run: ./setup.sh"
+    return 2
   else
-    warn "NemoClaw deploy exited with warnings."
-    warn "This is often OK — the onboard wizard may need manual completion."
-    warn "Continuing with policy setup..."
+    warn "Deploy had issues (exit ${DEPLOY_EXIT})."
+    warn "CLIs may be installed. Try: nemoclaw onboard"
+    return 1
   fi
 }
 
@@ -199,8 +215,32 @@ main() {
 
   preflight
   install_prereqs
+
   deploy_nemoclaw
+  local deploy_result=$?
+
+  # Always copy policies (useful even before onboard completes)
   apply_policies
+
+  if [[ ${deploy_result} -eq 2 ]]; then
+    # cgroup needs fixing — deploy script already printed instructions.
+    # Don't run health check or print the "all done" summary.
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}Setup paused — action needed before continuing.${NC}"
+    echo ""
+    echo "  After fixing Docker cgroup config (see above), either:"
+    echo "    ./setup.sh                      # re-run full setup"
+    echo "    nemoclaw onboard                # just run the onboard wizard"
+    echo ""
+    echo -e "  ${BOLD}Policies:${NC}      ${INSTALL_DIR}/policies/"
+    echo -e "  ${BOLD}Logs:${NC}          ${LOG_FILE}"
+    echo -e "  ${BOLD}Docs:${NC}          ${REPO_DIR}/docs/"
+    echo ""
+    echo -e "  ${CYAN}Built by The New Guard — thenewguard.ai${NC}"
+    echo ""
+    exit 2
+  fi
+
   run_healthcheck
   print_summary
 }
