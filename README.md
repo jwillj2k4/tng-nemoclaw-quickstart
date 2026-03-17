@@ -31,7 +31,7 @@ NemoClaw fixes that. But the docs are early, the tooling is alpha, and most buil
 ## Quick Start
 
 ```bash
-git clone https://github.com/YOUR_ORG/tng-nemoclaw-quickstart.git
+git clone https://github.com/thenewguardai/tng-nemoclaw-quickstart
 cd tng-nemoclaw-quickstart
 chmod +x setup.sh
 ./setup.sh
