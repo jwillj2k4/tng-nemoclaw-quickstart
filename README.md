@@ -111,11 +111,15 @@ See [docs/POLICIES.md](docs/POLICIES.md) for how to write your own.
 
 ## Requirements
 
-- **OS:** Ubuntu 22.04 LTS or later
+- **OS:** Ubuntu 22.04 LTS or later (native Linux or WSL2)
 - **RAM:** 16GB minimum (32GB+ recommended for local inference)
-- **Docker:** Installed and running
+- **Docker:** Installed and running (Docker Desktop with WSL integration, or native)
 - **NVIDIA API Key:** Free tier at [build.nvidia.com](https://build.nvidia.com) (for cloud inference)
 - **GPU (optional):** NVIDIA GPU for local Nemotron inference via vLLM
+
+### WSL2 Users
+
+The scripts auto-detect WSL2 and handle Docker differently (no `systemctl`). If using Docker Desktop, make sure WSL integration is enabled for your distro. If the onboard wizard stops with a cgroup error, run `nemoclaw setup-spark` to fix it — see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
 ---
 

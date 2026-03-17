@@ -18,6 +18,52 @@ nemoclaw my-assistant logs --follow
 
 ## Common Issues
 
+### WSL2: "Unit docker.service not found" or Docker won't start
+
+WSL2 doesn't use systemd by default. Docker is managed differently:
+
+**If using Docker Desktop (recommended for WSL2):**
+1. Open Docker Desktop on Windows
+2. Settings → Resources → WSL Integration
+3. Enable integration for your Ubuntu distro
+4. `docker ps` should now work in WSL2
+
+**If using native Docker in WSL2:**
+```bash
+sudo service docker start    # NOT systemctl
+```
+
+### Onboard stops with "cgroup v2" error
+
+NemoClaw's OpenShell gateway runs k3s inside Docker, which needs cgroup namespace host mode. Fix:
+
+```bash
+# Option A: Use NemoClaw's built-in fix
+cd ~/.tng-nemoclaw/NemoClaw
+nemoclaw setup-spark
+
+# Option B: Manual fix
+echo '{"default-cgroupns-mode": "host"}' | sudo tee /etc/docker/daemon.json
+sudo service docker restart    # or sudo systemctl restart docker
+
+# Then re-run onboard
+nemoclaw onboard
+```
+
+Our `setup.sh` tries to fix this automatically, but if Docker Desktop manages your daemon.json, the fix may not stick. Apply it in Docker Desktop: Settings → Docker Engine → add `"default-cgroupns-mode": "host"` to the JSON.
+
+### NemoClaw installer hangs during npm install
+
+Usually a slow npm registry or network issue. Try:
+```bash
+# Kill it (Ctrl+C), then run manually with verbose output
+cd ~/.tng-nemoclaw/NemoClaw
+npm install --verbose
+
+# If it completes, finish the setup
+nemoclaw onboard
+```
+
 ### "nemoclaw: command not found"
 
 NemoClaw's binary isn't in your PATH. Fix:
