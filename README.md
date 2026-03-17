@@ -10,102 +10,95 @@ Built by [The New Guard](https://thenewguard.ai) — the newsletter for builders
 
 A batteries-included starter kit for [NVIDIA NemoClaw](https://github.com/NVIDIA/NemoClaw) — the open-source security stack that wraps OpenClaw agents in enterprise-grade sandboxing, policy enforcement, and inference routing.
 
-This repo gives you:
+## ⚠️ Known Issue: WSL2 + GPU
 
-- **`setup.sh`** — One-command automated deployment (prereqs → OpenShell → NemoClaw → running agent)
-- **Production-ready security policies** — HIPAA, SOC 2, financial, legal, and dev/testing templates
-- **Pre-configured agent blueprints** — Research, code review, and data analysis agents ready to customize
-- **Monitoring scaffolding** — Docker Compose stack with log aggregation and alert rules
-- **Vertical opportunity examples** — See where the money is and start building
+**NemoClaw v0.0.7 has a confirmed bug on WSL2 with NVIDIA GPUs.** The `nemoclaw onboard` wizard forces `--gpu` on gateway and sandbox creation when it detects an NVIDIA GPU via `nvidia-smi`. On WSL2 with Docker Desktop, the GPU can't be passed through to the k3s cluster inside the gateway container, so every sandbox is dead on arrival.
 
-## Why This Exists
+**This repo includes a full workaround** — see [Quick Start](#quick-start) below or [docs/WSL2-WORKAROUND.md](docs/WSL2-WORKAROUND.md) for the deep explanation.
 
-OpenClaw became the fastest-growing open-source project in history. It also had 20% of its plugin marketplace distributing malware, 135,000+ instances exposed to the internet with no auth, and a one-click RCE that let any website hijack your agent.
-
-NemoClaw fixes that. But the docs are early, the tooling is alpha, and most builders haven't touched it yet.
-
-**This repo is your head start.**
+This affects everyone on WSL2 with an NVIDIA GPU. [Others have reported the same issue.](https://forums.developer.nvidia.com/t/bug-rtx-5070-ti-sandbox-notfound-access-denied-on-nemoclaw-onboarding-wsl2/363769)
 
 ---
 
 ## Quick Start
 
+### WSL2 (with or without NVIDIA GPU)
+
 ```bash
-git clone https://github.com/thenewguardai/tng-nemoclaw-quickstart
+git clone https://github.com/YOUR_ORG/tng-nemoclaw-quickstart.git
 cd tng-nemoclaw-quickstart
-chmod +x setup.sh
+
+# Phase 1: Install CLIs (one-time)
+chmod +x scripts/*.sh setup.sh
 ./setup.sh
+
+# Phase 2: Deploy (bypasses nemoclaw onboard --gpu bug)
+# Get a free NVIDIA API key at https://build.nvidia.com first
+./scripts/wsl2-deploy.sh nvapi-YOUR-KEY-HERE
 ```
 
-That's it. The script handles prerequisites, installs OpenShell and NemoClaw, deploys a sandboxed agent with the default lockdown policy, and drops you into a connected session.
+### macOS (Docker Desktop)
 
-### What `setup.sh` Does (Under the Hood)
+```bash
+git clone https://github.com/YOUR_ORG/tng-nemoclaw-quickstart.git
+cd tng-nemoclaw-quickstart
+chmod +x scripts/*.sh setup.sh
+./setup.sh
+./scripts/macos-deploy.sh nvapi-YOUR-KEY-HERE
+```
 
-1. Checks and installs prerequisites (Docker, Git, Node.js)
-2. Clones and builds NVIDIA OpenShell
-3. Clones NemoClaw and runs the installer
-4. Copies TNG policy templates into the deployment
-5. Runs a health check to verify everything's live
-6. Connects you to your first sandboxed agent
+### Native Linux (no GPU issues)
 
-### Manual Setup
-
-If you prefer to go step-by-step, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full walkthrough.
+```bash
+git clone https://github.com/YOUR_ORG/tng-nemoclaw-quickstart.git
+cd tng-nemoclaw-quickstart
+chmod +x scripts/*.sh setup.sh
+./setup.sh
+# On native Linux with NVIDIA Container Toolkit, nemoclaw onboard works:
+cd ~/.tng-nemoclaw/NemoClaw && nemoclaw onboard
+```
 
 ---
 
-## Repo Structure
+## How It Works
+
+The setup is split into two phases:
+
+**Phase 1 (`setup.sh`):** Installs prerequisites (Docker, Node.js, Git), clones OpenShell + NemoClaw repos, installs both CLIs, copies TNG policy templates. Works on all platforms.
+
+**Phase 2 (platform-specific deploy):** Creates the OpenShell gateway, inference provider, sandbox, and configures OpenClaw inside the sandbox. On WSL2/macOS, this bypasses `nemoclaw onboard` entirely because of the `--gpu` bug.
+
+---
+
+## What's Inside
 
 ```
 tng-nemoclaw-quickstart/
-├── setup.sh                    # One-command deployment
+├── setup.sh                        # Phase 1: Install CLIs + policies
 ├── scripts/
-│   ├── install-prereqs.sh      # Docker, Node.js, system deps
-│   ├── deploy-nemoclaw.sh      # NemoClaw + OpenShell install
-│   ├── health-check.sh         # Verify the full stack
-│   └── teardown.sh             # Clean uninstall
-├── policies/                   # OpenShell YAML security policies
-│   ├── base/                   # Strict default lockdown
-│   ├── healthcare/             # HIPAA-compliant agent policies
-│   ├── financial/              # SOC 2 / financial compliance
-│   ├── legal/                  # Legal privilege & data isolation
-│   └── dev/                    # Permissive dev/testing policy
-├── agents/                     # Pre-configured agent examples
-│   ├── research-agent/         # Web research with source tracking
-│   ├── code-review-agent/      # Sandboxed code analysis
-│   └── data-analyst-agent/     # CSV/data processing in isolation
-├── monitoring/                 # Observability stack
-│   ├── docker-compose.yaml     # Loki + Promtail + Grafana
-│   ├── dashboards/             # Pre-built Grafana dashboards
-│   └── alerts/                 # Alert rules for policy violations
-├── blueprints/                 # NemoClaw deployment blueprints
-│   ├── single_agent.py         # Single sandboxed agent
-│   └── multi_agent.py          # Multi-agent orchestration
-├── examples/
-│   ├── custom-skill/           # Write a safe, auditable skill
-│   └── inference-profiles/     # Switch between cloud/local/vLLM
+│   ├── install-prereqs.sh          # Docker, Node.js, Git (cross-platform)
+│   ├── deploy-nemoclaw.sh          # Install OpenShell + NemoClaw CLIs
+│   ├── wsl2-deploy.sh              # Phase 2: WSL2 full deploy (workaround)
+│   ├── macos-deploy.sh             # Phase 2: macOS full deploy (workaround)
+│   ├── health-check.sh             # Verify the full stack
+│   └── teardown.sh                 # Clean uninstall
+├── policies/                       # OpenShell YAML security policies
+│   ├── base/default-lockdown.yaml  # Maximum restriction baseline
+│   ├── healthcare/hipaa-agent.yaml # HIPAA-compliant
+│   ├── financial/soc2-agent.yaml   # SOC 2 auditable
+│   ├── legal/legal-privilege.yaml  # Attorney-client privilege
+│   └── dev/permissive-dev.yaml     # Development/testing
+├── agents/                         # Pre-configured agent examples
+├── monitoring/                     # Loki + Promtail + Grafana stack
+├── blueprints/                     # Single and multi-agent deployment
+├── examples/                       # Custom skill + inference profiles
 └── docs/
-    ├── ARCHITECTURE.md         # Full stack walkthrough
-    ├── POLICIES.md             # Policy writing guide
-    ├── TROUBLESHOOTING.md      # Known issues & fixes
-    └── OPPORTUNITIES.md        # Where the money is
+    ├── WSL2-WORKAROUND.md          # The GPU bug explained + full fix
+    ├── ARCHITECTURE.md             # Stack walkthrough
+    ├── POLICIES.md                 # Policy writing guide
+    ├── TROUBLESHOOTING.md          # Every issue we hit, solved
+    └── OPPORTUNITIES.md            # Where the money is
 ```
-
----
-
-## Policy Templates
-
-Every enterprise deployment needs custom security policies. We ship five starting points:
-
-| Policy | Use Case | Network | Filesystem | Inference |
-|--------|----------|---------|------------|-----------|
-| `base/default-lockdown.yaml` | Maximum restriction baseline | Deny all except inference | `/sandbox` + `/tmp` only | Cloud API only |
-| `healthcare/hipaa-agent.yaml` | HIPAA-compliant deployments | Allowlisted EHR endpoints | PHI isolation boundaries | Local NIM only (no cloud) |
-| `financial/soc2-agent.yaml` | SOC 2 auditable pipelines | Financial data APIs only | Audit trail on all writes | Configurable |
-| `legal/legal-privilege.yaml` | Attorney-client privilege | Internal systems only | Strict read/write logging | Local only |
-| `dev/permissive-dev.yaml` | Development & testing | Broad (with logging) | Full sandbox access | Any profile |
-
-See [docs/POLICIES.md](docs/POLICIES.md) for how to write your own.
 
 ---
 
@@ -113,43 +106,24 @@ See [docs/POLICIES.md](docs/POLICIES.md) for how to write your own.
 
 | | macOS | Linux | WSL2 |
 |---|---|---|---|
-| **OS** | macOS 13+ (Ventura) | Ubuntu 22.04+ | Ubuntu 22.04+ on Windows |
-| **Docker** | Docker Desktop for Mac | Docker Engine or Desktop | Docker Desktop with WSL integration |
+| **OS** | macOS 13+ | Ubuntu 22.04+ | Ubuntu 22.04+ on Windows |
+| **Docker** | Docker Desktop | Docker Engine or Desktop | Docker Desktop + WSL integration |
 | **RAM** | 16GB+ | 16GB+ | 16GB+ |
-| **GPU** | Not needed (cloud inference) | NVIDIA GPU optional (local inference) | NVIDIA GPU optional |
-| **Arch** | Intel or Apple Silicon | x86_64 or aarch64 | x86_64 |
+| **NVIDIA API Key** | Required | Required | Required |
+| **GPU** | N/A | Optional (local inference) | Detected but not usable (known bug) |
 
-- **NVIDIA API Key:** Free tier at [build.nvidia.com](https://build.nvidia.com) (for cloud inference)
-
-### How macOS Works
-
-NemoClaw's sandbox uses Linux kernel security (Landlock, seccomp). On macOS, this works because the sandbox runs *inside Docker containers* — Docker Desktop provides a Linux VM under the hood. The NemoClaw CLI is Node.js (cross-platform) and OpenShell ships Darwin binaries. Your Mac never runs Linux primitives directly; the containers handle that.
-
-### WSL2 Users
-
-The scripts auto-detect WSL2 and handle Docker differently (no `systemctl`). If using Docker Desktop, make sure WSL integration is enabled for your distro. If the onboard wizard stops with a cgroup error, run `nemoclaw setup-spark` — see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+Get a free NVIDIA API key at [build.nvidia.com](https://build.nvidia.com).
 
 ---
 
 ## Contributing
 
-This is a community resource. PRs welcome — especially:
-
-- New vertical policy templates (insurance, government, education)
-- Agent blueprints for specific use cases
-- Monitoring improvements and dashboard templates
-- Bug fixes and platform compatibility patches
-
----
+PRs welcome — especially new vertical policy templates, platform-specific fixes, and agent blueprints.
 
 ## License
 
 Apache 2.0 — same as NemoClaw itself.
 
----
-
 ## Credits
 
-Built by [The New Guard](https://thenewguard.ai). NemoClaw and OpenShell are NVIDIA open-source projects under Apache 2.0.
-
-**Not affiliated with NVIDIA.** This is an independent community resource for builders.
+Built by [The New Guard](https://thenewguard.ai). NemoClaw and OpenShell are NVIDIA open-source projects under Apache 2.0. **Not affiliated with NVIDIA.**

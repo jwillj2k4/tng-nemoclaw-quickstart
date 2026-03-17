@@ -1,191 +1,122 @@
 # TNG NemoClaw — Troubleshooting
 
+Every issue below was hit during real testing. These aren't theoretical.
+
 ## Quick Diagnostics
 
 ```bash
-# Check everything at once
-bash scripts/health-check.sh
-
-# NemoClaw-level health
-nemoclaw my-assistant status
-
-# OpenShell-level sandbox state
-openshell sandbox list
-
-# Stream logs in real-time
-nemoclaw my-assistant logs --follow
+bash scripts/health-check.sh        # Full stack check
+openshell status                     # Gateway health
+openshell sandbox list               # Running sandboxes
+openshell doctor check               # System prerequisites
 ```
 
-## Common Issues
+## WSL2: Sandbox "not found" immediately after creation
 
-### macOS: NemoClaw installer warns about OS / Ubuntu
+**Root cause:** `nemoclaw onboard` forces `--gpu` on sandbox creation. GPU passthrough doesn't work on WSL2 + Docker Desktop. The sandbox is dead on arrival.
 
-NemoClaw's installer was written for Ubuntu. On macOS, you may see warnings or the installer may exit early. This is cosmetic — the sandbox runs inside Docker (Linux containers), not on your Mac directly. To finish manually:
+**Fix:** Use `./scripts/wsl2-deploy.sh` which bypasses `nemoclaw onboard` entirely. See [docs/WSL2-WORKAROUND.md](WSL2-WORKAROUND.md).
 
+## WSL2: "Unit docker.service not found"
+
+**Root cause:** WSL2 doesn't use systemd by default. Docker Desktop manages the daemon from Windows.
+
+**Fix:** Use `sudo service docker start`, not `sudo systemctl start docker`. Our scripts detect WSL2 and handle this.
+
+## WSL2: cgroup v2 / "cgroupns=host" error
+
+**Root cause:** OpenShell's gateway runs k3s inside Docker, which needs `"default-cgroupns-mode": "host"` in Docker's config.
+
+**Fix (Docker Desktop):** Settings → Docker Engine → add `"default-cgroupns-mode": "host"` to JSON → Apply & Restart.
+
+**Fix (native Docker):** `nemoclaw setup-spark` or manually:
 ```bash
-cd ~/.tng-nemoclaw/NemoClaw
-npm install
-npm link    # or: sudo npm link
-nemoclaw onboard
-```
-
-### macOS: "openshell: command not found"
-
-OpenShell installs to `~/.local/bin/` which isn't in PATH by default on macOS. Add it:
-```bash
-# For zsh (default on macOS)
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-
-# For bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bash_profile
-source ~/.bash_profile
-```
-
-### macOS: Docker Desktop not enough memory
-
-Docker Desktop defaults to limited memory on macOS. Bump it:
-1. Docker Desktop → Settings → Resources
-2. Set Memory to at least 8GB (16GB recommended for local inference)
-3. Apply & Restart
-
-### WSL2: "Unit docker.service not found" or Docker won't start
-
-WSL2 doesn't use systemd by default. Docker is managed differently:
-
-**If using Docker Desktop (recommended for WSL2):**
-1. Open Docker Desktop on Windows
-2. Settings → Resources → WSL Integration
-3. Enable integration for your Ubuntu distro
-4. `docker ps` should now work in WSL2
-
-**If using native Docker in WSL2:**
-```bash
-sudo service docker start    # NOT systemctl
-```
-
-### Onboard stops with "cgroup v2" error
-
-NemoClaw's OpenShell gateway runs k3s inside Docker, which needs cgroup namespace host mode. Fix:
-
-```bash
-# Option A: Use NemoClaw's built-in fix
-cd ~/.tng-nemoclaw/NemoClaw
-nemoclaw setup-spark
-
-# Option B: Manual fix
 echo '{"default-cgroupns-mode": "host"}' | sudo tee /etc/docker/daemon.json
-sudo service docker restart    # or sudo systemctl restart docker
-
-# Then re-run onboard
-nemoclaw onboard
+sudo service docker restart
 ```
 
-Our `setup.sh` tries to fix this automatically, but if Docker Desktop manages your daemon.json, the fix may not stick. Apply it in Docker Desktop: Settings → Docker Engine → add `"default-cgroupns-mode": "host"` to the JSON.
+## WSL2: "/etc/docker/daemon.json: No such file or directory"
 
-### NemoClaw installer hangs during npm install
+**Root cause:** Docker Desktop manages daemon config from Windows side. `/etc/docker/` doesn't exist in WSL2.
 
-Usually a slow npm registry or network issue. Try:
+**Fix:** Set cgroupns in Docker Desktop UI, not from WSL2 command line.
+
+## "Corrupted cluster state" / "K8s namespace not ready"
+
+**Root cause:** Previous failed onboard run left stale k3s state.
+
+**Fix:**
 ```bash
-# Kill it (Ctrl+C), then run manually with verbose output
-cd ~/.tng-nemoclaw/NemoClaw
-npm install --verbose
-
-# If it completes, finish the setup
-nemoclaw onboard
+openshell gateway destroy --name nemoclaw
+docker volume rm openshell-cluster-nemoclaw
+# Then re-run your deploy script
 ```
 
-### "nemoclaw: command not found"
+## Port 8080 conflict: "port held by container openshell-cluster-openshell"
 
-NemoClaw's binary isn't in your PATH. Fix:
+**Root cause:** NemoClaw's error messages tell you to run `openshell gateway start` (no `--name`), creating a gateway named "openshell." Then nemoclaw tries "nemoclaw" on the same port.
+
+**Fix:**
 ```bash
-export PATH="$HOME/.tng-nemoclaw/NemoClaw/bin:$PATH"
-# Add to your .bashrc or .zshrc to persist
+openshell gateway destroy --name openshell
+openshell gateway destroy --name nemoclaw
+# Then start with consistent name:
+openshell gateway start --name nemoclaw
 ```
 
-### "openshell: command not found"
+## OpenClaw: "Missing gateway auth token"
 
-Same issue, different binary:
+**Root cause:** The sandbox was created before the inference provider was registered. Credentials are injected at sandbox creation time.
+
+**Fix:** Delete sandbox, ensure provider exists, recreate:
 ```bash
-export PATH="$HOME/.tng-nemoclaw/OpenShell/bin:$PATH"
+# From host
+openshell provider list              # Verify provider exists
+openshell sandbox delete tng-nemoclaw
+openshell sandbox create --name tng-nemoclaw --from openclaw
 ```
 
-### Install script fails with Docker permission errors
+## OpenClaw: Still using Anthropic/Claude despite NVIDIA config
 
-You need to be in the `docker` group:
+**Root cause:** `ANTHROPIC_API_KEY` is set in the environment. OpenClaw sees it and defaults to Claude.
+
+**Fix:** Inside sandbox:
 ```bash
-sudo usermod -aG docker $USER
-# Log out and back in, or:
-newgrp docker
+unset ANTHROPIC_API_KEY
+# Run openclaw onboard and select Custom Provider
 ```
 
-### "NemoClaw requires a fresh installation of OpenClaw"
+## OpenClaw: "Config validation failed: Unrecognized key"
 
-If you have an existing OpenClaw install, NemoClaw can't layer on top. Options:
-1. Uninstall OpenClaw first, then run `setup.sh`
-2. Run NemoClaw on a separate machine or VM
-3. Use a Docker container as your base environment
+**Root cause:** OpenClaw's config schema doesn't accept arbitrary keys. Model provider config goes through `openclaw onboard`, not `openclaw config set`.
 
-### Sandbox won't start — "Landlock not supported"
+**Fix:** Run `openclaw onboard` inside the sandbox and use the interactive wizard to set up the provider.
 
-Landlock LSM requires Linux kernel 5.13+. Check:
-```bash
-uname -r
-# If below 5.13, you need a kernel upgrade
+## OpenClaw: "fetch failed" during onboard verification
+
+**Root cause:** The sandbox blocks outbound network. The base URL must be OpenShell's internal proxy, not the external NVIDIA API.
+
+**Fix:** When `openclaw onboard` asks for Base URL, use:
 ```
-
-Ubuntu 22.04 ships with 5.15+, so this shouldn't happen on supported distros.
-
-### Agent can't reach inference API
-
-Check your NVIDIA API key:
-```bash
-# Is it set?
-echo $NVIDIA_API_KEY
-
-# Test it directly
-curl -s -H "Authorization: Bearer $NVIDIA_API_KEY" \
-  https://integrate.api.nvidia.com/v1/models | jq .
+https://inference.local/v1
 ```
+NOT `https://integrate.api.nvidia.com/v1`
 
-If using local inference, make sure the NIM container or vLLM process is running:
-```bash
-docker ps | grep nim
-# or
-ps aux | grep vllm
-```
+## Health check dies after first check
 
-### Policy changes aren't taking effect
+**Root cause (fixed in our scripts):** Bash's `((PASS++))` returns exit code 1 when incrementing from 0 (0 is falsy). Combined with `set -e`, the script dies after the first passing check.
 
-Network policies are hot-reloadable. Filesystem and process policies are NOT — they're locked at sandbox creation. If you need to change filesystem boundaries, you need to destroy and recreate the sandbox.
+**Fix:** We use `PASS=$((PASS + 1))` instead. Already fixed.
+
+## nemoclaw / openshell: "command not found"
 
 ```bash
-# Reapply network policy (no restart needed)
-openshell policy apply --network policies/my-policy.yaml
-
-# For filesystem changes — recreate the sandbox
-nemoclaw my-assistant stop
-# Re-run setup with new filesystem policy
+# Add common install locations to PATH
+export PATH="$HOME/.local/bin:$PATH"
+# For NemoClaw specifically:
+cd ~/.tng-nemoclaw/NemoClaw && npm link
 ```
 
-### Monitoring stack (Grafana) not showing data
+## macOS: NemoClaw installer warns about Ubuntu
 
-1. Check Promtail is finding the log files:
-   ```bash
-   docker logs tng-promtail
-   ```
-2. Verify Loki is receiving data:
-   ```bash
-   curl http://localhost:3100/ready
-   ```
-3. Make sure log paths in `promtail-config.yaml` match your actual NemoClaw log locations
-
-### "openclaw nemoclaw" plugin commands fail
-
-The plugin commands are under active development. Use the `nemoclaw` host CLI instead — it's the stable interface. Check the NemoClaw GitHub issues for known plugin bugs.
-
-## Getting Help
-
-- **NemoClaw issues:** https://github.com/NVIDIA/NemoClaw/issues
-- **OpenShell issues:** https://github.com/NVIDIA/OpenShell/issues
-- **TNG community:** https://thenewguard.ai
+NemoClaw's installer checks for Ubuntu. On macOS, the sandbox runs inside Docker containers (Linux), so this warning is cosmetic. Use `./scripts/macos-deploy.sh` instead of `nemoclaw onboard`.

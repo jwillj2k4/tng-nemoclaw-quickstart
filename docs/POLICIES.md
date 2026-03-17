@@ -2,108 +2,35 @@
 
 ## The Basics
 
-OpenShell policies are YAML files that define what a sandboxed agent can and cannot do. They control three layers: network, filesystem, and inference routing.
+OpenShell policies are YAML files controlling network, filesystem, and inference routing. Start with `policies/base/default-lockdown.yaml` and open only what you need.
 
-## Starting Point
-
-Always start with `policies/base/default-lockdown.yaml`. It blocks everything except inference. Open only what your use case requires.
+## Applying a Policy
 
 ```bash
-# Apply the lockdown baseline
-openshell policy apply --network policies/base/default-lockdown.yaml
+# From the host (not inside sandbox)
+openshell policy set --policy policies/base/default-lockdown.yaml
 
-# Then layer on your customizations
-openshell policy apply --network policies/my-custom-policy.yaml
+# Network policies are hot-reloadable — no restart needed
+# Filesystem and process policies are locked at sandbox creation
 ```
 
-## Network Policies
+## Available Templates
 
-Network policies control outbound connections. They're **hot-reloadable** — change them without restarting the sandbox.
+| Template | Use Case | Cloud Inference? |
+|----------|----------|-----------------|
+| `base/default-lockdown.yaml` | Maximum restriction baseline | Yes (NVIDIA only) |
+| `healthcare/hipaa-agent.yaml` | HIPAA Technical Safeguards | No (local only) |
+| `financial/soc2-agent.yaml` | SOC 2 audit trail | Yes (with redaction) |
+| `legal/legal-privilege.yaml` | Attorney-client privilege | No (local only) |
+| `dev/permissive-dev.yaml` | Development/testing | Yes (broad access) |
 
-```yaml
-network:
-  egress:
-    allow:
-      - host: "api.example.com"     # Exact hostname
-        ports: [443]                  # Which ports
-        protocol: "https"             # Protocol
-        description: "Why this is allowed"
+## Writing Your Own
 
-      - host: "*.internal.co"        # Wildcard subdomain
-        ports: [443, 8443]
-        protocol: "https"
+1. Deploy with `dev/permissive-dev.yaml` (broad + logged)
+2. Run your agent through real tasks
+3. Review logs to see what it reaches
+4. Build your production policy from observed behavior
+5. Test the restrictive policy
+6. Deploy
 
-    deny:
-      - host: "*"                     # Catch-all deny
-```
-
-**Best practice:** Write your deny rule first, then add specific allows. Never use a broad allow in production.
-
-## Filesystem Policies
-
-Filesystem policies define readable/writable paths. They're **locked at sandbox creation** — you can't change them at runtime.
-
-```yaml
-filesystem:
-  writable:
-    - "/sandbox/workspace"
-    - "/sandbox/output"
-    - "/tmp"
-
-  blocked:
-    - "/etc"
-    - "/var"
-    - "/home"
-
-  containment_zones:
-    - path: "/sandbox/sensitive"
-      allow_export: false    # Files here can NEVER leave the sandbox
-```
-
-## Inference Routing
-
-Controls which models the agent uses and how data flows to them.
-
-```yaml
-inference:
-  provider: "nvidia-cloud"           # or "nim-local" or "vllm-local"
-  model: "nvidia/nemotron-3-super-120b-a12b"
-
-  privacy_router:
-    enabled: true
-    allow_cloud: true                 # Set false to block all cloud inference
-    redact_patterns:
-      - "\\b\\d{3}-\\d{2}-\\d{4}\\b"  # SSN pattern
-    log_routing: true
-    log_redactions: true
-```
-
-## Workflow: Building a Custom Policy
-
-1. Deploy with `dev/permissive-dev.yaml` (broad access + full logging)
-2. Run your agent through realistic tasks
-3. Review the logs — see what hosts it reaches, what files it touches
-4. Build your production policy based on actual observed behavior
-5. Test the restrictive policy — make sure the agent still works
-6. Deploy to production
-
-This is the correct order. Don't guess what the agent needs — observe it, then lock it down.
-
-## Testing a Policy
-
-```bash
-# Apply your policy
-openshell policy apply --network my-policy.yaml
-
-# Connect to the sandbox
-nemoclaw my-assistant connect
-
-# Try to hit a blocked endpoint (should fail)
-curl https://should-be-blocked.com
-
-# Try to hit an allowed endpoint (should work)
-curl https://your-allowed-api.com
-
-# Check the logs from the host
-nemoclaw my-assistant logs -f
-```
+See [OPPORTUNITIES.md](OPPORTUNITIES.md) for the consulting opportunity here.
