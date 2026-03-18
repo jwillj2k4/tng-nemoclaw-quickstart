@@ -66,25 +66,43 @@ warn "  ./scripts/wsl2-deploy.sh nvapi-YOUR-KEY (cloud inference, stable)"
 echo ""
 
 # ============================================================================
-# PREFLIGHT
+# PREFLIGHT & DRIVER CHECK
 # ============================================================================
 info "Preflight checks..."
 
+# 1. WSL2 Verification
 if ! grep -qi "microsoft\|wsl" /proc/version 2>/dev/null; then
   fail "Not running on WSL2."
 fi
 success "WSL2 detected ✓"
 
+# 2. Driver Presence
 if ! command -v nvidia-smi &>/dev/null; then
-  fail "nvidia-smi not found."
+  fail "nvidia-smi not found. Please install NVIDIA drivers on Windows Host."
 fi
 
+# 3. Ampere Architecture (RTX 3090) Compatibility Check
+DRIVER_VER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits 2>/dev/null | cut -d. -f1)
 GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits 2>/dev/null | head -1)
 GPU_MEM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
-success "GPU: ${GPU_NAME:-unknown} (${GPU_MEM:-?} MB) ✓"
+
+info "  Detected GPU: ${GPU_NAME:-unknown} (${GPU_MEM:-?} MB)"
+info "  Detected Driver: R${DRIVER_VER:-unknown}"
+
+# RTX 3090 (Ampere) requires at least R455 for basic support.
+# Modern CDI/OpenShell pipelines require R510+ for stable WSL2 IPC.
+if [[ -n "$DRIVER_VER" ]]; then
+  if (( DRIVER_VER < 455 )); then
+    fail "Incompatible Driver: RTX 3090 (Ampere) requires R455+. Please update Windows drivers."
+  elif (( DRIVER_VER < 510 )); then
+    warn "Driver R${DRIVER_VER} is supported, but R510+ is recommended for stable CDI passthrough."
+  else
+    success "Driver R${DRIVER_VER} is compatible ✓"
+  fi
+fi
 
 if [[ ! -e /dev/dxg ]]; then
-  warn "/dev/dxg not found — GPU bridge may not be available."
+  warn "/dev/dxg not found — GPU bridge may not be available. Run 'wsl --update' in PowerShell."
 fi
 
 echo ""
